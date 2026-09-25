@@ -1,4 +1,4 @@
-const CACHE_NAME = "quiet-season-v1";
+const CACHE_NAME = "quiet-season-v2";
 const ASSETS = [
   "./",
   "./index.html",
