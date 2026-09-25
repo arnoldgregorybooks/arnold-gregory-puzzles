@@ -1,0 +1,16 @@
+{
+  "name": "Neon Decade — 80s Word Search",
+  "short_name": "Neon Decade",
+  "description": "A tablet word search puzzle collection with an 80s theme, motivational monologues, and a bonus zone.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#170a2b",
+  "theme_color": "#170a2b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
