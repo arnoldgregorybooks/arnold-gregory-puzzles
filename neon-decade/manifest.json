@@ -1,7 +1,7 @@
 {
-  "name": "Neon Decade — 80s Word Search",
+  "name": "Neon Decade — 200 Puzzles",
   "short_name": "Neon Decade",
-  "description": "A tablet word search puzzle collection with an 80s theme, motivational monologues, and a bonus zone.",
+  "description": "100 Sudoku and 100 eighties-themed Word Search puzzles, tablet-optimized, with a Bonus Zone of 80s trivia and flashback facts.",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "any",
