@@ -1,34 +1,22 @@
 /* ============================================================
-   NEON DECADE — Word Search: application logic
+   NEON DECADE v2 — application logic
    ============================================================ */
 
-const STORAGE_KEY = "neon-decade-progress-v2";
-
-const DIRS_ALL = [
-  [1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]
-];
-const DIRS_EASY = [[1,0],[0,1]]; // right, down only
-
-/* ----------------------------- state ----------------------------- */
-/* Each puzzle's progress is {solved, found:[words]} so a half-finished
-   puzzle is remembered too, not just fully-solved ones. */
-
-function freshPuzzleProgress(){ return {solved:false, found:[]}; }
+const STORAGE_KEY = "neon-decade-v2-progress";
 
 function loadState(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){
       const parsed = JSON.parse(raw);
-      if(parsed && parsed.version === 2) return parsed;
+      if(parsed && parsed.version === 1) return parsed;
     }
   }catch(e){}
   return {
-    version: 2,
+    version: 1,
     seenIntro: false,
-    themes: THEMES.map(t => t.puzzles.map(freshPuzzleProgress)),
-    bonus: BONUS_PUZZLES.map(freshPuzzleProgress),
-    secret: freshPuzzleProgress(),
+    sudoku: SUDOKU_PUZZLES.map(p => ({ filled: p.puzzle, solved: false })),
+    wordsearch: WS_PUZZLES.map(() => ({ solved: false, found: [] })),
     triviaBest: null
   };
 }
@@ -37,84 +25,28 @@ function saveState(){
 }
 let state = loadState();
 
-function totalSolved(){
-  return state.themes.reduce((sum, arr) => sum + arr.filter(p => p.solved).length, 0);
-}
-function totalPuzzles(){
-  return THEMES.reduce((sum, t) => sum + t.puzzles.length, 0);
-}
-function bonusUnlocked(){
-  return totalSolved() >= totalPuzzles();
-}
-
-/* ------------------------ word search generator ------------------------ */
-
-function makeGrid(words, size, dirs){
-  const attempts = 300;
-  let grid, placements;
-
-  for(let tryAll = 0; tryAll < 40; tryAll++){
-    grid = Array.from({length:size}, () => Array(size).fill(null));
-    placements = [];
-    const sorted = [...words].sort((a,b) => b.length - a.length);
-    let ok = true;
-
-    for(const word of sorted){
-      let placed = false;
-      for(let a = 0; a < attempts; a++){
-        const dir = dirs[Math.floor(Math.random()*dirs.length)];
-        const [dx,dy] = dir;
-        const row = dy === 1 ? Math.floor(Math.random()*(size - word.length + 1))
-                  : dy === -1 ? Math.floor(Math.random()*(size - word.length + 1)) + word.length - 1
-                  : Math.floor(Math.random()*size);
-        const col = dx === 1 ? Math.floor(Math.random()*(size - word.length + 1))
-                  : dx === -1 ? Math.floor(Math.random()*(size - word.length + 1)) + word.length - 1
-                  : Math.floor(Math.random()*size);
-
-        let fits = true;
-        const cells = [];
-        for(let i=0;i<word.length;i++){
-          const r = row + dy*i, c = col + dx*i;
-          if(r<0||r>=size||c<0||c>=size){ fits=false; break; }
-          const existing = grid[r][c];
-          if(existing !== null && existing !== word[i]){ fits=false; break; }
-          cells.push([r,c]);
-        }
-        if(fits){
-          cells.forEach(([r,c],i) => grid[r][c] = word[i]);
-          placements.push({word, cells});
-          placed = true;
-          break;
-        }
-      }
-      if(!placed){ ok = false; break; }
-    }
-    if(ok) break;
-  }
-
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  for(let r=0;r<size;r++) for(let c=0;c<size;c++)
-    if(grid[r][c] === null) grid[r][c] = letters[Math.floor(Math.random()*26)];
-
-  return {grid, placements};
-}
+function sudokuSolvedCount(){ return state.sudoku.filter(p => p.solved).length; }
+function wsSolvedCount(){ return state.wordsearch.filter(p => p.solved).length; }
+function randomMonologue(){ return DAILY_MONOLOGUES[Math.floor(Math.random()*DAILY_MONOLOGUES.length)]; }
 
 /* ------------------------------- screens ------------------------------- */
 
 const app = document.getElementById("app");
-let currentPuzzleCtx = null; // {source, themeIdx, puzzleIdx, onComplete}
-
 function go(renderFn){
   app.innerHTML = "";
   renderFn(app);
   window.scrollTo(0,0);
 }
-
-function progressLabel(){
-  return `${totalSolved()} / ${totalPuzzles()} solved`;
+function flash(msg){
+  const el = document.createElement("div");
+  el.className = "flash-toast";
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.classList.add("show"), 10);
+  setTimeout(() => { el.classList.remove("show"); setTimeout(()=>el.remove(),300); }, 2200);
 }
 
-/* ---- intro / how it works ---- */
+/* ---- intro ---- */
 function renderIntro(){
   go(root => {
     root.innerHTML = `
@@ -122,15 +54,20 @@ function renderIntro(){
         <div class="intro-card">
           <div class="intro-sun"></div>
           <h1 class="brand">NEON DECADE</h1>
-          <p class="brand-sub">Word Search — Tablet Edition</p>
+          <p class="brand-sub">200 Puzzles — Tablet Edition</p>
           <div class="intro-body">
+            <p><strong>What's inside</strong></p>
+            <ul>
+              <li><strong>100 Sudoku</strong> puzzles — Easy, Normal, and Hard.</li>
+              <li><strong>100 Word Search</strong> puzzles across ten eighties-themed categories.</li>
+              <li><strong>Bonus page</strong> — 80s trivia quiz and Flashback Facts, open any time.</li>
+            </ul>
             <p><strong>How it works</strong></p>
             <ul>
-              <li>Pick a theme, then pick a puzzle inside it.</li>
-              <li><strong>Two ways to select a word:</strong> drag across it start to finish, <em>or</em> tap its first letter and then tap its last letter. Tap your starting letter again to cancel and pick a new one.</li>
-              <li>Find every word on the list to clear the puzzle. Stuck? <strong>Reset</strong> clears your progress on that puzzle, and <strong>Reveal</strong> shows every word.</li>
-              <li>Clear all 50 puzzles to unlock the <strong>Bonus Zone</strong>: extra puzzles, a secret finale puzzle, and an 80s trivia quiz.</li>
-              <li>Your progress — including half-finished puzzles — saves automatically on this device.</li>
+              <li>Sudoku: tap a square, then tap a number to fill it. Check, reset, or reveal any time.</li>
+              <li>Word Search: drag across a word, or tap its first letter then its last.</li>
+              <li>Every puzzle opens with a little hype line to get you going.</li>
+              <li>Your progress saves automatically, even mid-puzzle.</li>
             </ul>
           </div>
           <button class="btn btn-primary btn-big" id="startBtn">Let's Go</button>
@@ -146,280 +83,102 @@ function renderIntro(){
 /* ---- home ---- */
 function renderHome(){
   go(root => {
-    const unlocked = bonusUnlocked();
     const wrap = document.createElement("div");
     wrap.className = "home-screen";
     wrap.innerHTML = `
-      <header class="topbar">
+      <header class="topbar home-topbar">
         <div>
           <h1 class="brand small">NEON DECADE</h1>
-          <p class="brand-sub">Word Search</p>
+          <p class="brand-sub">200 Puzzles</p>
         </div>
-        <div class="progress-chip">${progressLabel()}</div>
       </header>
-      <div class="theme-grid" id="themeGrid"></div>
-      <div class="bonus-tile ${unlocked ? "unlocked" : "locked"}" id="bonusTile">
-        <div class="bonus-tile-inner">
-          <span class="bonus-title">${unlocked ? "★ BONUS ZONE ★" : "BONUS ZONE"}</span>
-          <span class="bonus-sub">${unlocked ? "Extra puzzles, a secret finale, and the 80s trivia quiz" : `Solve all ${totalPuzzles()} puzzles to unlock — ${progressLabel()}`}</span>
-        </div>
+      <div class="home-cards">
+        <button class="home-card" id="sudokuCard">
+          <span class="home-card-icon">✎</span>
+          <span><span class="home-card-title">Sudoku</span><span class="home-card-sub">${sudokuSolvedCount()} / 100 solved</span></span>
+        </button>
+        <button class="home-card" id="wsCard">
+          <span class="home-card-icon">◎</span>
+          <span><span class="home-card-title">Word Search</span><span class="home-card-sub">${wsSolvedCount()} / 100 solved</span></span>
+        </button>
+        <button class="home-card bonus-card" id="bonusCard">
+          <span class="home-card-icon">✦</span>
+          <span><span class="home-card-title">Bonus Zone</span><span class="home-card-sub">80s Trivia &amp; Flashback Facts</span></span>
+        </button>
       </div>
     `;
     root.appendChild(wrap);
-
-    const grid = wrap.querySelector("#themeGrid");
-    THEMES.forEach((theme, idx) => {
-      const solved = state.themes[idx].filter(p => p.solved).length;
-      const el = document.createElement("button");
-      el.className = "theme-tile";
-      el.style.setProperty("--tile-hue", `${(idx*36) % 360}`);
-      el.innerHTML = `
-        <span class="theme-name">${theme.name}</span>
-        <span class="theme-tagline">${theme.tagline}</span>
-        <span class="theme-progress">${solved}/${theme.puzzles.length} solved</span>
-      `;
-      el.addEventListener("click", () => renderThemeList(idx));
-      grid.appendChild(el);
-    });
-
-    wrap.querySelector("#bonusTile").addEventListener("click", () => {
-      if(unlocked) renderBonusZone();
-      else flash("Solve every puzzle first — " + progressLabel());
-    });
+    wrap.querySelector("#sudokuCard").addEventListener("click", () => renderSudokuDifficulty());
+    wrap.querySelector("#wsCard").addEventListener("click", () => renderWsThemes());
+    wrap.querySelector("#bonusCard").addEventListener("click", () => renderBonus());
   });
 }
 
-function flash(msg){
-  const el = document.createElement("div");
-  el.className = "flash-toast";
-  el.textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(() => el.classList.add("show"), 10);
-  setTimeout(() => { el.classList.remove("show"); setTimeout(()=>el.remove(),300); }, 2200);
+/* ============================== SUDOKU ============================== */
+
+function sudokuByDifficulty(diff){
+  return SUDOKU_PUZZLES.map((p, idx) => ({p, idx})).filter(x => x.p.difficulty === diff);
 }
 
-/* ---- theme puzzle list ---- */
-function renderThemeList(themeIdx){
-  const theme = THEMES[themeIdx];
+function renderSudokuDifficulty(){
   go(root => {
     const wrap = document.createElement("div");
     wrap.className = "list-screen";
     wrap.innerHTML = `
       <header class="topbar">
         <button class="btn btn-back" id="backBtn">&larr; Back</button>
-        <div class="titleblock">
-          <h1 class="brand small">${theme.name}</h1>
-          <p class="brand-sub">${theme.tagline}</p>
-        </div>
+        <div class="titleblock"><h1 class="brand small">Sudoku</h1><p class="brand-sub">Pick a difficulty</p></div>
       </header>
-      <div class="puzzle-list" id="puzzleList"></div>
+      <div class="diff-cards" id="diffCards"></div>
     `;
     root.appendChild(wrap);
     wrap.querySelector("#backBtn").addEventListener("click", renderHome);
-
-    const list = wrap.querySelector("#puzzleList");
-    theme.puzzles.forEach((p, i) => {
-      const prog = state.themes[themeIdx][i];
-      const inProgress = !prog.solved && prog.found.length > 0;
-      const row = document.createElement("button");
-      row.className = "puzzle-row" + (prog.solved ? " solved" : inProgress ? " inprogress" : "");
-      row.innerHTML = `
-        <span class="puzzle-num">${i+1}</span>
-        <span class="puzzle-meta">
-          <span class="puzzle-diff diff-${p.difficulty}">${p.difficulty}</span>
-          <span class="puzzle-count">${p.words.length} words</span>
-        </span>
-        <span class="puzzle-status">${prog.solved ? "✓ Solved" : inProgress ? `${prog.found.length}/${p.words.length} found` : "Play"}</span>
-      `;
-      row.addEventListener("click", () => {
-        currentPuzzleCtx = {source:"theme", themeIdx, puzzleIdx:i};
-        renderPuzzle(p.words, p.difficulty === "easy" ? 10 : 13,
-          p.difficulty === "easy" ? DIRS_EASY : DIRS_ALL,
-          `${theme.name} — Puzzle ${i+1}`,
-          prog,
-          () => onPuzzleSolved());
-      });
-      list.appendChild(row);
+    const diffCards = wrap.querySelector("#diffCards");
+    [["easy","Easy",40],["normal","Normal",35],["hard","Hard",25]].forEach(([key,label,count]) => {
+      const items = sudokuByDifficulty(key);
+      const solved = items.filter(x => state.sudoku[x.idx].solved).length;
+      const card = document.createElement("button");
+      card.className = "diff-card diff-" + key;
+      card.innerHTML = `<span class="diff-card-label">${label}</span><span class="diff-card-sub">${solved}/${count} solved</span>`;
+      card.addEventListener("click", () => renderSudokuGrid(key));
+      diffCards.appendChild(card);
     });
   });
 }
 
-function onPuzzleSolved(){
-  const ctx = currentPuzzleCtx;
-  if(ctx.source === "theme"){
-    renderQuote(() => renderThemeList(ctx.themeIdx));
-  } else if(ctx.source === "bonus"){
-    renderQuote(() => renderBonusZone());
-  } else if(ctx.source === "secret"){
-    renderQuote(() => renderBonusZone());
-  }
-}
-
-/* ---- quote interstitial ---- */
-function renderQuote(nextFn){
-  const quote = QUOTES[Math.floor(Math.random()*QUOTES.length)];
-  go(root => {
-    root.innerHTML = `
-      <div class="quote-screen">
-        <div class="quote-card">
-          <div class="quote-mark">"</div>
-          <p class="quote-text">${quote}</p>
-          <button class="btn btn-primary btn-big" id="continueBtn">Continue</button>
-        </div>
-      </div>`;
-    root.querySelector("#continueBtn").addEventListener("click", nextFn);
-  });
-}
-
-/* ---- bonus zone ---- */
-function renderBonusZone(){
+function renderSudokuGrid(diff){
+  const items = sudokuByDifficulty(diff);
   go(root => {
     const wrap = document.createElement("div");
     wrap.className = "list-screen";
     wrap.innerHTML = `
       <header class="topbar">
         <button class="btn btn-back" id="backBtn">&larr; Back</button>
-        <div class="titleblock">
-          <h1 class="brand small">★ Bonus Zone ★</h1>
-          <p class="brand-sub">You earned this</p>
-        </div>
+        <div class="titleblock"><h1 class="brand small">Sudoku — ${diff[0].toUpperCase()+diff.slice(1)}</h1></div>
       </header>
-      <div class="bonus-sections">
-        <section>
-          <h2 class="section-head">Bonus Puzzle Pack</h2>
-          <div class="puzzle-list" id="bonusList"></div>
-        </section>
-        <section>
-          <h2 class="section-head">Secret Finale Puzzle</h2>
-          <div class="puzzle-list" id="secretList"></div>
-        </section>
-        <section>
-          <h2 class="section-head">80s Trivia Quiz</h2>
-          <div class="puzzle-list" id="triviaList"></div>
-        </section>
-      </div>
+      <div class="number-grid" id="numberGrid"></div>
     `;
     root.appendChild(wrap);
-    wrap.querySelector("#backBtn").addEventListener("click", renderHome);
-
-    const bonusList = wrap.querySelector("#bonusList");
-    BONUS_PUZZLES.forEach((p, i) => {
-      const prog = state.bonus[i];
-      const inProgress = !prog.solved && prog.found.length > 0;
-      const row = document.createElement("button");
-      row.className = "puzzle-row" + (prog.solved ? " solved" : inProgress ? " inprogress" : "");
-      row.innerHTML = `
-        <span class="puzzle-num">${i+1}</span>
-        <span class="puzzle-meta"><span class="puzzle-count">${p.title} — ${p.words.length} words</span></span>
-        <span class="puzzle-status">${prog.solved ? "✓ Solved" : inProgress ? `${prog.found.length}/${p.words.length} found` : "Play"}</span>`;
-      row.addEventListener("click", () => {
-        currentPuzzleCtx = {source:"bonus", puzzleIdx:i};
-        renderPuzzle(p.words, 11, DIRS_ALL, p.title, prog, onPuzzleSolved);
-      });
-      bonusList.appendChild(row);
+    wrap.querySelector("#backBtn").addEventListener("click", renderSudokuDifficulty);
+    const ng = wrap.querySelector("#numberGrid");
+    items.forEach((x, i) => {
+      const solved = state.sudoku[x.idx].solved;
+      const started = !solved && state.sudoku[x.idx].filled !== SUDOKU_PUZZLES[x.idx].puzzle;
+      const tile = document.createElement("button");
+      tile.className = "number-tile" + (solved ? " solved" : started ? " inprogress" : "");
+      tile.textContent = i + 1;
+      tile.addEventListener("click", () => renderSudokuPlay(x.idx));
+      ng.appendChild(tile);
     });
-
-    const secretList = wrap.querySelector("#secretList");
-    const sprog = state.secret;
-    const srow = document.createElement("button");
-    srow.className = "puzzle-row" + (sprog.solved ? " solved" : sprog.found.length ? " inprogress" : "");
-    srow.innerHTML = `
-      <span class="puzzle-num">★</span>
-      <span class="puzzle-meta"><span class="puzzle-count">${SECRET_PUZZLE.title}</span></span>
-      <span class="puzzle-status">${sprog.solved ? "✓ Solved" : sprog.found.length ? `${sprog.found.length}/${SECRET_PUZZLE.words.length} found` : "Play"}</span>`;
-    srow.addEventListener("click", () => {
-      currentPuzzleCtx = {source:"secret"};
-      renderPuzzle(SECRET_PUZZLE.words, 13, DIRS_ALL, SECRET_PUZZLE.title, sprog, onPuzzleSolved);
-    });
-    secretList.appendChild(srow);
-
-    const triviaList = wrap.querySelector("#triviaList");
-    const trow = document.createElement("button");
-    trow.className = "puzzle-row" + (state.triviaBest !== null ? " solved" : "");
-    trow.innerHTML = `
-      <span class="puzzle-num">?</span>
-      <span class="puzzle-meta"><span class="puzzle-count">${TRIVIA.length} questions</span></span>
-      <span class="puzzle-status">${state.triviaBest !== null ? `Best: ${state.triviaBest}/${TRIVIA.length}` : "Play"}</span>`;
-    trow.addEventListener("click", renderTrivia);
-    triviaList.appendChild(trow);
   });
 }
 
-/* ---- trivia quiz ---- */
-function renderTrivia(){
-  let idx = 0, score = 0;
-  const order = TRIVIA.map((_,i)=>i);
-
-  function showQuestion(){
-    const t = TRIVIA[order[idx]];
-    go(root => {
-      root.innerHTML = `
-        <div class="trivia-screen">
-          <header class="topbar">
-            <button class="btn btn-back" id="backBtn">&larr; Exit</button>
-            <div class="progress-chip">Question ${idx+1} / ${TRIVIA.length}</div>
-          </header>
-          <div class="trivia-card">
-            <p class="trivia-q">${t.q}</p>
-            <div class="trivia-options" id="opts"></div>
-          </div>
-        </div>`;
-      root.querySelector("#backBtn").addEventListener("click", renderBonusZone);
-      const optsWrap = root.querySelector("#opts");
-      t.options.forEach((opt, oi) => {
-        const b = document.createElement("button");
-        b.className = "trivia-opt";
-        b.textContent = opt;
-        b.addEventListener("click", () => {
-          const correct = oi === t.answer;
-          if(correct) score++;
-          [...optsWrap.children].forEach((c,ci) => {
-            c.disabled = true;
-            if(ci === t.answer) c.classList.add("correct");
-            else if(ci === oi) c.classList.add("wrong");
-          });
-          setTimeout(() => {
-            idx++;
-            if(idx < TRIVIA.length) showQuestion();
-            else showResult();
-          }, 900);
-        });
-        optsWrap.appendChild(b);
-      });
-    });
-  }
-
-  function showResult(){
-    if(state.triviaBest === null || score > state.triviaBest){
-      state.triviaBest = score; saveState();
-    }
-    go(root => {
-      root.innerHTML = `
-        <div class="quote-screen">
-          <div class="quote-card">
-            <p class="quote-text" style="font-size:1.6rem;">You scored</p>
-            <p class="trivia-score">${score} / ${TRIVIA.length}</p>
-            <button class="btn btn-primary btn-big" id="doneBtn">Back to Bonus Zone</button>
-          </div>
-        </div>`;
-      root.querySelector("#doneBtn").addEventListener("click", renderBonusZone);
-    });
-  }
-
-  showQuestion();
-}
-
-/* ---- puzzle play ----
-   Selection supports BOTH continuous drag AND a two-tap mode (tap the first
-   letter, then tap the last letter). Window-level pointer listeners are
-   registered ONCE at boot (see bottom of file); `activePuzzle` is swapped
-   per puzzle instead of re-registering handlers, so re-entering puzzles
-   never stacks duplicate listeners. */
-let activePuzzle = null;
-
-function renderPuzzle(words, size, dirs, title, progress, onAllFound){
-  const {grid, placements} = makeGrid(words, size, dirs);
-  const found = new Set(progress.found.filter(w => words.includes(w)));
+function renderSudokuPlay(idx){
+  const puzzle = SUDOKU_PUZZLES[idx];
+  const progress = state.sudoku[idx];
+  let filled = progress.filled.split("");
+  let selected = null;
+  const monologue = randomMonologue();
 
   go(root => {
     const wrap = document.createElement("div");
@@ -427,15 +186,229 @@ function renderPuzzle(words, size, dirs, title, progress, onAllFound){
     wrap.innerHTML = `
       <header class="topbar">
         <button class="btn btn-back" id="backBtn">&larr; Exit</button>
-        <div class="titleblock"><h1 class="brand small">${title}</h1></div>
+        <div class="titleblock"><h1 class="brand small">Sudoku &mdash; ${puzzle.difficulty[0].toUpperCase()+puzzle.difficulty.slice(1)}</h1></div>
       </header>
+      <div class="monologue-banner">${monologue}</div>
+      <div class="sudoku-body">
+        <div class="sudoku-grid" id="sudokuGrid"></div>
+        <div class="numpad" id="numpad"></div>
+      </div>
+      <div class="puzzle-actions">
+        <button class="btn ghost-btn" id="checkBtn">Check</button>
+        <button class="btn ghost-btn" id="resetBtn">Reset</button>
+        <button class="btn ghost-btn" id="revealBtn">Reveal</button>
+      </div>
+      <div class="ws-status" id="status"></div>
+    `;
+    root.appendChild(wrap);
+    wrap.querySelector("#backBtn").addEventListener("click", () => renderSudokuGrid(puzzle.difficulty));
+
+    const gridEl = wrap.querySelector("#sudokuGrid");
+    const statusEl = wrap.querySelector("#status");
+    const cellEls = [];
+
+    function persist(){ progress.filled = filled.join(""); saveState(); }
+    function checkWin(){
+      if(filled.join("") === puzzle.solution){
+        progress.solved = true; persist();
+        statusEl.textContent = "Solved! Well done.";
+        cellEls.forEach(el => el.classList.add("solved-flash"));
+      }
+    }
+    function renderCells(){
+      gridEl.innerHTML = ""; cellEls.length = 0;
+      for(let i=0;i<81;i++){
+        const r = Math.floor(i/9), c = i%9;
+        const cell = document.createElement("div");
+        cell.className = "sd-cell";
+        if(r%3===0) cell.classList.add("border-top");
+        if(c%3===0) cell.classList.add("border-left");
+        if(r===8) cell.classList.add("border-bottom");
+        if(c===8) cell.classList.add("border-right");
+        const isGiven = puzzle.puzzle[i] !== "0";
+        if(isGiven) cell.classList.add("given");
+        if(selected === i) cell.classList.add("selected");
+        cell.textContent = filled[i] === "0" ? "" : filled[i];
+        cell.addEventListener("click", () => { if(isGiven) return; selected = i; renderCells(); });
+        gridEl.appendChild(cell);
+        cellEls.push(cell);
+      }
+    }
+    renderCells();
+
+    const numpad = wrap.querySelector("#numpad");
+    for(let n=1;n<=9;n++){
+      const b = document.createElement("button");
+      b.className = "num-btn"; b.textContent = n;
+      b.addEventListener("click", () => {
+        if(selected === null){ statusEl.textContent = "Tap an empty square first."; return; }
+        filled[selected] = String(n); persist(); renderCells();
+        if(!filled.includes("0")) checkWin();
+      });
+      numpad.appendChild(b);
+    }
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "num-btn clear-btn"; clearBtn.textContent = "Clear";
+    clearBtn.addEventListener("click", () => {
+      if(selected === null) return;
+      filled[selected] = "0"; persist(); renderCells();
+    });
+    numpad.appendChild(clearBtn);
+
+    wrap.querySelector("#checkBtn").addEventListener("click", () => {
+      let wrongCount = 0;
+      cellEls.forEach((el, i) => {
+        if(filled[i] !== "0" && filled[i] !== puzzle.solution[i]){ el.classList.add("wrong-flash"); wrongCount++; }
+      });
+      statusEl.textContent = wrongCount === 0 ? "Looks correct so far!" : `${wrongCount} square${wrongCount>1?"s":""} may need another look.`;
+      setTimeout(() => cellEls.forEach(el => el.classList.remove("wrong-flash")), 1200);
+    });
+    wrap.querySelector("#resetBtn").addEventListener("click", () => {
+      filled = puzzle.puzzle.split(""); progress.solved = false; selected = null;
+      persist(); renderCells(); statusEl.textContent = "Puzzle reset.";
+    });
+    wrap.querySelector("#revealBtn").addEventListener("click", () => {
+      filled = puzzle.solution.split(""); progress.solved = true;
+      persist(); renderCells(); statusEl.textContent = "Solution revealed.";
+    });
+  });
+}
+
+/* =========================== WORD SEARCH =========================== */
+
+const DIRS_ALL = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+const DIRS_EASY = [[1,0],[0,1]];
+
+function makeGrid(words, size, dirs){
+  const attempts = 400;
+  let grid, placements;
+  for(let tryAll = 0; tryAll < 60; tryAll++){
+    grid = Array.from({length:size}, () => Array(size).fill(null));
+    placements = [];
+    const sorted = [...words].sort((a,b) => b.length - a.length);
+    let ok = true;
+    for(const word of sorted){
+      let placed = false;
+      for(let a = 0; a < attempts; a++){
+        const [dx,dy] = dirs[Math.floor(Math.random()*dirs.length)];
+        const row = dy === 1 ? Math.floor(Math.random()*(size - word.length + 1))
+                  : dy === -1 ? Math.floor(Math.random()*(size - word.length + 1)) + word.length - 1
+                  : Math.floor(Math.random()*size);
+        const col = dx === 1 ? Math.floor(Math.random()*(size - word.length + 1))
+                  : dx === -1 ? Math.floor(Math.random()*(size - word.length + 1)) + word.length - 1
+                  : Math.floor(Math.random()*size);
+        let fits = true; const cells = [];
+        for(let i=0;i<word.length;i++){
+          const r = row + dy*i, c = col + dx*i;
+          if(r<0||r>=size||c<0||c>=size){ fits=false; break; }
+          const existing = grid[r][c];
+          if(existing !== null && existing !== word[i]){ fits=false; break; }
+          cells.push([r,c]);
+        }
+        if(fits){ cells.forEach(([r,c],i) => grid[r][c] = word[i]); placements.push({word, cells}); placed = true; break; }
+      }
+      if(!placed){ ok = false; break; }
+    }
+    if(ok) break;
+  }
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for(let r=0;r<size;r++) for(let c=0;c<size;c++)
+    if(grid[r][c] === null) grid[r][c] = letters[Math.floor(Math.random()*26)];
+  return {grid, placements};
+}
+
+function renderWsThemes(){
+  go(root => {
+    const wrap = document.createElement("div");
+    wrap.className = "home-screen";
+    wrap.innerHTML = `
+      <header class="topbar">
+        <button class="btn btn-back" id="backBtn">&larr; Back</button>
+        <div class="titleblock"><h1 class="brand small">Word Search</h1><p class="brand-sub">${wsSolvedCount()} / 100 solved</p></div>
+      </header>
+      <div class="theme-grid" id="themeGrid"></div>
+    `;
+    root.appendChild(wrap);
+    wrap.querySelector("#backBtn").addEventListener("click", renderHome);
+    const grid = wrap.querySelector("#themeGrid");
+    WS_THEMES.forEach((theme, idx) => {
+      const puzzlesInTheme = WS_PUZZLES.map((p,i)=>({p,i})).filter(x => x.p.theme === theme.id);
+      const solved = puzzlesInTheme.filter(x => state.wordsearch[x.i].solved).length;
+      const el = document.createElement("button");
+      el.className = "theme-tile";
+      el.style.setProperty("--tile-hue", `${(idx*36) % 360}`);
+      el.innerHTML = `
+        <span class="theme-name">${theme.name}</span>
+        <span class="theme-tagline">${theme.tagline}</span>
+        <span class="theme-progress">${solved}/${puzzlesInTheme.length} solved</span>
+      `;
+      el.addEventListener("click", () => renderWsPuzzleList(theme.id));
+      grid.appendChild(el);
+    });
+  });
+}
+
+function renderWsPuzzleList(themeId){
+  const theme = WS_THEMES.find(t => t.id === themeId);
+  const items = WS_PUZZLES.map((p,i)=>({p,i})).filter(x => x.p.theme === themeId);
+  go(root => {
+    const wrap = document.createElement("div");
+    wrap.className = "list-screen";
+    wrap.innerHTML = `
+      <header class="topbar">
+        <button class="btn btn-back" id="backBtn">&larr; Back</button>
+        <div class="titleblock"><h1 class="brand small">${theme.name}</h1><p class="brand-sub">${theme.tagline}</p></div>
+      </header>
+      <div class="puzzle-list" id="puzzleList"></div>
+    `;
+    root.appendChild(wrap);
+    wrap.querySelector("#backBtn").addEventListener("click", renderWsThemes);
+    const list = wrap.querySelector("#puzzleList");
+    items.forEach((x, i) => {
+      const prog = state.wordsearch[x.i];
+      const inProgress = !prog.solved && prog.found.length > 0;
+      const row = document.createElement("button");
+      row.className = "puzzle-row" + (prog.solved ? " solved" : inProgress ? " inprogress" : "");
+      row.innerHTML = `
+        <span class="puzzle-num">${i+1}</span>
+        <span class="puzzle-meta">
+          <span class="puzzle-diff diff-${x.p.difficulty}">${x.p.difficulty}</span>
+          <span class="puzzle-count">${x.p.words.length} words</span>
+        </span>
+        <span class="puzzle-status">${prog.solved ? "✓ Solved" : inProgress ? `${prog.found.length}/${x.p.words.length} found` : "Play"}</span>
+      `;
+      row.addEventListener("click", () => renderWsPlay(x.i, () => renderWsPuzzleList(themeId)));
+      list.appendChild(row);
+    });
+  });
+}
+
+let activeWs = null;
+
+function renderWsPlay(puzzleIdx, onExit){
+  const p = WS_PUZZLES[puzzleIdx];
+  const progress = state.wordsearch[puzzleIdx];
+  const dirs = p.difficulty === "easy" ? DIRS_EASY : DIRS_ALL;
+  const {grid, placements} = makeGrid(p.words, p.grid, dirs);
+  const found = new Set(progress.found.filter(w => p.words.includes(w)));
+  const monologue = randomMonologue();
+
+  go(root => {
+    const wrap = document.createElement("div");
+    wrap.className = "puzzle-screen";
+    wrap.innerHTML = `
+      <header class="topbar">
+        <button class="btn btn-back" id="backBtn">&larr; Exit</button>
+        <div class="titleblock"><h1 class="brand small">${p.themeName}</h1></div>
+      </header>
+      <div class="monologue-banner">${monologue}</div>
       <p class="puzzle-hint">Drag across a word, or tap its first letter then its last. Tap the start letter again to cancel.</p>
       <div class="puzzle-body">
-        <div class="grid-wrap"><div class="wordgrid" id="wordgrid" style="--gridsize:${size}"></div></div>
+        <div class="grid-wrap"><div class="wordgrid" id="wordgrid" style="--gridsize:${p.grid}"></div></div>
         <div class="wordlist-wrap">
           <div class="wordlist-head">
             <h2 class="section-head">Find these</h2>
-            <span class="found-count" id="foundCount">${found.size}/${words.length} found</span>
+            <span class="found-count" id="foundCount">${found.size}/${p.words.length} found</span>
           </div>
           <ul class="wordlist" id="wordlist"></ul>
           <div class="puzzle-actions">
@@ -447,50 +420,35 @@ function renderPuzzle(words, size, dirs, title, progress, onAllFound){
       </div>
     `;
     root.appendChild(wrap);
-    root.querySelector("#backBtn").addEventListener("click", () => {
-      if(currentPuzzleCtx.source === "theme") renderThemeList(currentPuzzleCtx.themeIdx);
-      else renderBonusZone();
-    });
+    root.querySelector("#backBtn").addEventListener("click", onExit);
 
     const wlEl = wrap.querySelector("#wordlist");
     const foundCountEl = wrap.querySelector("#foundCount");
     const statusEl = wrap.querySelector("#wsStatus");
-    words.forEach(w => {
+    p.words.forEach(w => {
       const li = document.createElement("li");
-      li.dataset.word = w;
-      li.textContent = w;
+      li.dataset.word = w; li.textContent = w;
       if(found.has(w)) li.classList.add("found");
       wlEl.appendChild(li);
     });
 
     const gridEl = wrap.querySelector("#wordgrid");
     const cellEls = [];
-    for(let r=0;r<size;r++){
+    for(let r=0;r<p.grid;r++){
       const rowEls = [];
-      for(let c=0;c<size;c++){
+      for(let c=0;c<p.grid;c++){
         const cell = document.createElement("div");
-        cell.className = "cell";
-        cell.textContent = grid[r][c];
+        cell.className = "cell"; cell.textContent = grid[r][c];
         cell.dataset.r = r; cell.dataset.c = c;
         gridEl.appendChild(cell);
         rowEls.push(cell);
       }
       cellEls.push(rowEls);
     }
-    // paint back in any already-found words (restored progress)
-    placements.forEach(p => {
-      if(found.has(p.word)){
-        p.cells.forEach(([r,c]) => cellEls[r][c].classList.add("found"));
-      }
-    });
+    placements.forEach(pl => { if(found.has(pl.word)) pl.cells.forEach(([r,c]) => cellEls[r][c].classList.add("found")); });
 
-    function updateFoundCount(){
-      foundCountEl.textContent = `${found.size}/${words.length} found`;
-    }
-    function persist(){
-      progress.found = [...found];
-      saveState();
-    }
+    function updateFoundCount(){ foundCountEl.textContent = `${found.size}/${p.words.length} found`; }
+    function persist(){ progress.found = [...found]; saveState(); }
 
     function cellFromPoint(x,y){
       const el = document.elementFromPoint(x,y);
@@ -510,17 +468,10 @@ function renderPuzzle(words, size, dirs, title, progress, onAllFound){
     }
     gridEl.style.touchAction = "none";
 
-    activePuzzle = {
-      anchor: null,
-      pointerActive: false,
-      didMove: false,
-      tempPath: [],
-
+    activeWs = {
+      anchor: null, pointerActive: false, didMove: false, tempPath: [],
       clearTemp(){
-        this.tempPath.forEach(({r,c}) => {
-          const el = cellEls[r][c];
-          if(!el.classList.contains("found")) el.classList.remove("active");
-        });
+        this.tempPath.forEach(({r,c}) => { const el = cellEls[r][c]; if(!el.classList.contains("found")) el.classList.remove("active"); });
         this.tempPath = [];
       },
       updatePath(a,b){
@@ -528,28 +479,17 @@ function renderPuzzle(words, size, dirs, title, progress, onAllFound){
         const path = straightPath(a,b);
         if(!path) return;
         this.tempPath = path;
-        path.forEach(({r,c}) => {
-          const el = cellEls[r][c];
-          if(!el.classList.contains("found")) el.classList.add("active");
-        });
+        path.forEach(({r,c}) => { const el = cellEls[r][c]; if(!el.classList.contains("found")) el.classList.add("active"); });
       },
       updateStatus(){
-        statusEl.textContent = this.anchor
-          ? "Selecting… tap the last letter, drag, or tap the start letter again to cancel."
-          : "";
+        statusEl.textContent = this.anchor ? "Selecting… tap the last letter, drag, or tap the start letter again to cancel." : "";
       },
       onDown(x,y){
         const pos = cellFromPoint(x,y);
         if(!pos) return;
-        this.pointerActive = true;
-        this.didMove = false;
-        if(this.anchor === null){
-          this.anchor = pos;
-          this.updatePath(pos,pos);
-        } else {
-          this.updatePath(this.anchor, pos);
-          this.didMove = true;
-        }
+        this.pointerActive = true; this.didMove = false;
+        if(this.anchor === null){ this.anchor = pos; this.updatePath(pos,pos); }
+        else { this.updatePath(this.anchor, pos); this.didMove = true; }
         this.updateStatus();
       },
       onMove(x,y){
@@ -568,75 +508,155 @@ function renderPuzzle(words, size, dirs, title, progress, onAllFound){
         if(this.tempPath.length > 1){
           const str = this.tempPath.map(({r,c}) => grid[r][c]).join("");
           const rev = str.split("").reverse().join("");
-          const match = placements.find(p => !found.has(p.word) && (p.word === str || p.word === rev));
+          const match = placements.find(pl => !found.has(pl.word) && (pl.word === str || pl.word === rev));
           if(match){
             found.add(match.word);
-            this.tempPath.forEach(({r,c}) => {
-              cellEls[r][c].classList.remove("active");
-              cellEls[r][c].classList.add("found");
-            });
+            this.tempPath.forEach(({r,c}) => { cellEls[r][c].classList.remove("active"); cellEls[r][c].classList.add("found"); });
             const li = wlEl.querySelector(`[data-word="${match.word}"]`);
             if(li) li.classList.add("found");
             updateFoundCount();
             statusEl.textContent = `Found ${match.word}!`;
-            if(found.size === words.length){
-              progress.solved = true;
-              persist();
-              statusEl.textContent = "All words found!";
-              setTimeout(() => onAllFound(), 500);
-            } else {
-              persist();
-            }
+            if(found.size === p.words.length){ progress.solved = true; persist(); statusEl.textContent = "All words found!"; }
+            else persist();
           } else {
-            // visible "wrong attempt" feedback instead of silently clearing
             this.tempPath.forEach(({r,c}) => cellEls[r][c].classList.add("wrong"));
             statusEl.textContent = "Not quite — try again.";
-            setTimeout(() => {
-              this.tempPath.forEach(({r,c}) => cellEls[r][c].classList.remove("wrong"));
-            }, 350);
+            setTimeout(() => { this.tempPath.forEach(({r,c}) => cellEls[r][c].classList.remove("wrong")); }, 350);
           }
         }
-        this.clearTemp();
-        this.anchor = null;
-        this.updateStatus();
+        this.clearTemp(); this.anchor = null; this.updateStatus();
       }
     };
 
-    gridEl.addEventListener("pointerdown", e => { e.preventDefault(); activePuzzle.onDown(e.clientX, e.clientY); });
+    gridEl.addEventListener("pointerdown", e => { e.preventDefault(); activeWs.onDown(e.clientX, e.clientY); });
 
     wrap.querySelector("#resetPuzzleBtn").addEventListener("click", () => {
-      found.clear();
-      progress.solved = false;
-      persist();
+      found.clear(); progress.solved = false; persist();
       wlEl.querySelectorAll("li.found").forEach(li => li.classList.remove("found"));
       cellEls.forEach(row => row.forEach(el => el.classList.remove("found","active","wrong")));
-      updateFoundCount();
-      statusEl.textContent = "Puzzle reset.";
-      if(activePuzzle){ activePuzzle.anchor = null; activePuzzle.tempPath = []; activePuzzle.pointerActive = false; }
+      updateFoundCount(); statusEl.textContent = "Puzzle reset.";
+      if(activeWs){ activeWs.anchor = null; activeWs.tempPath = []; activeWs.pointerActive = false; }
     });
-
     wrap.querySelector("#revealBtn").addEventListener("click", () => {
-      placements.forEach(p => {
-        if(found.has(p.word)) return;
-        found.add(p.word);
-        p.cells.forEach(([r,c]) => cellEls[r][c].classList.add("found"));
-        const li = wlEl.querySelector(`[data-word="${p.word}"]`);
+      placements.forEach(pl => {
+        if(found.has(pl.word)) return;
+        found.add(pl.word);
+        pl.cells.forEach(([r,c]) => cellEls[r][c].classList.add("found"));
+        const li = wlEl.querySelector(`[data-word="${pl.word}"]`);
         if(li) li.classList.add("found");
       });
-      progress.solved = true;
-      persist();
-      updateFoundCount();
-      statusEl.textContent = "Solution revealed.";
-      if(activePuzzle){ activePuzzle.anchor = null; activePuzzle.tempPath = []; activePuzzle.pointerActive = false; }
+      progress.solved = true; persist(); updateFoundCount(); statusEl.textContent = "Solution revealed.";
+      if(activeWs){ activeWs.anchor = null; activeWs.tempPath = []; activeWs.pointerActive = false; }
     });
   });
 }
 
+/* ================================ BONUS ================================ */
+
+function renderBonus(){
+  go(root => {
+    const wrap = document.createElement("div");
+    wrap.className = "list-screen";
+    wrap.innerHTML = `
+      <header class="topbar">
+        <button class="btn btn-back" id="backBtn">&larr; Back</button>
+        <div class="titleblock"><h1 class="brand small">★ Bonus Zone ★</h1></div>
+      </header>
+      <div class="bonus-tabs">
+        <button class="bonus-tab active" id="triviaTab">80s Trivia</button>
+        <button class="bonus-tab" id="factsTab">Flashback Facts</button>
+      </div>
+      <div class="bonus-content" id="bonusContent"></div>
+    `;
+    root.appendChild(wrap);
+    wrap.querySelector("#backBtn").addEventListener("click", renderHome);
+
+    const content = wrap.querySelector("#bonusContent");
+    const triviaTab = wrap.querySelector("#triviaTab");
+    const factsTab = wrap.querySelector("#factsTab");
+
+    function showTriviaIntro(){
+      content.innerHTML = `
+        <div class="bonus-card-item trivia-launch">
+          <p>${TRIVIA.length} questions about the decade. How much do you remember?</p>
+          <p class="found-count">${state.triviaBest !== null ? `Best score: ${state.triviaBest}/${TRIVIA.length}` : "Not played yet"}</p>
+          <button class="btn btn-primary" id="startTriviaBtn">Start Quiz</button>
+        </div>`;
+      content.querySelector("#startTriviaBtn").addEventListener("click", renderTrivia);
+    }
+    function showFacts(){
+      content.innerHTML = "";
+      FLASHBACK_FACTS.forEach(text => {
+        const card = document.createElement("div");
+        card.className = "bonus-card-item";
+        card.innerHTML = `<span class="bonus-item-icon">✦</span><p>${text}</p>`;
+        content.appendChild(card);
+      });
+    }
+    triviaTab.addEventListener("click", () => { triviaTab.classList.add("active"); factsTab.classList.remove("active"); showTriviaIntro(); });
+    factsTab.addEventListener("click", () => { factsTab.classList.add("active"); triviaTab.classList.remove("active"); showFacts(); });
+    showTriviaIntro();
+  });
+}
+
+function renderTrivia(){
+  let idx = 0, score = 0;
+  const order = TRIVIA.map((_,i)=>i);
+
+  function showQuestion(){
+    const t = TRIVIA[order[idx]];
+    go(root => {
+      root.innerHTML = `
+        <div class="trivia-screen">
+          <header class="topbar">
+            <button class="btn btn-back" id="backBtn">&larr; Exit</button>
+            <div class="progress-chip">Question ${idx+1} / ${TRIVIA.length}</div>
+          </header>
+          <div class="trivia-card">
+            <p class="trivia-q">${t.q}</p>
+            <div class="trivia-options" id="opts"></div>
+          </div>
+        </div>`;
+      root.querySelector("#backBtn").addEventListener("click", renderBonus);
+      const optsWrap = root.querySelector("#opts");
+      t.options.forEach((opt, oi) => {
+        const b = document.createElement("button");
+        b.className = "trivia-opt"; b.textContent = opt;
+        b.addEventListener("click", () => {
+          const correct = oi === t.answer;
+          if(correct) score++;
+          [...optsWrap.children].forEach((c,ci) => {
+            c.disabled = true;
+            if(ci === t.answer) c.classList.add("correct");
+            else if(ci === oi) c.classList.add("wrong");
+          });
+          setTimeout(() => { idx++; if(idx < TRIVIA.length) showQuestion(); else showResult(); }, 900);
+        });
+        optsWrap.appendChild(b);
+      });
+    });
+  }
+  function showResult(){
+    if(state.triviaBest === null || score > state.triviaBest){ state.triviaBest = score; saveState(); }
+    go(root => {
+      root.innerHTML = `
+        <div class="quote-screen">
+          <div class="quote-card">
+            <p class="quote-text" style="font-size:1.6rem;">You scored</p>
+            <p class="trivia-score">${score} / ${TRIVIA.length}</p>
+            <button class="btn btn-primary btn-big" id="doneBtn">Back to Bonus Zone</button>
+          </div>
+        </div>`;
+      root.querySelector("#doneBtn").addEventListener("click", renderBonus);
+    });
+  }
+  showQuestion();
+}
+
 /* ------------------------------- boot ------------------------------- */
 
-// Single, permanent window-level listeners for puzzle-grid drag/tap selection.
-window.addEventListener("pointermove", e => { if(activePuzzle) activePuzzle.onMove(e.clientX, e.clientY); });
-window.addEventListener("pointerup", () => { if(activePuzzle) activePuzzle.onUp(); });
+window.addEventListener("pointermove", e => { if(activeWs) activeWs.onMove(e.clientX, e.clientY); });
+window.addEventListener("pointerup", () => { if(activeWs) activeWs.onUp(); });
 
 if(state.seenIntro) renderHome();
 else renderIntro();
