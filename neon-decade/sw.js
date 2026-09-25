@@ -1,9 +1,11 @@
-const CACHE_NAME = "neon-decade-v2";
+const CACHE_NAME = "neon-decade-v2-cache-1";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
-  "./data.js",
+  "./data-sudoku.js",
+  "./data-wordsearch.js",
+  "./data-bonus.js",
   "./app.js",
   "./manifest.json",
   "./icon-192.png",
@@ -11,21 +13,13 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).catch(() => {})
-  );
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)).catch(() => {}));
   self.skipWaiting();
 });
-
 self.addEventListener("activate", e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
-  );
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))));
   self.clients.claim();
 });
-
 self.addEventListener("fetch", e => {
   if(e.request.method !== "GET") return;
   e.respondWith(
