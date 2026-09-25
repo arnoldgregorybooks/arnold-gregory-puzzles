@@ -1,4 +1,4 @@
-const CACHE_NAME = "neon-decade-v1";
+const CACHE_NAME = "neon-decade-v2";
 const ASSETS = [
   "./",
   "./index.html",
